@@ -241,6 +241,49 @@
     .modal-fondo{align-items:center;padding:24px}
     .modal{border-radius:18px}
   }
+
+  /* ===== Tablero de recaudación (solo admin) ===== */
+  .btn-rec{display:flex;align-items:center;gap:12px;width:100%;border:1px solid var(--borde);background:#fff;border-radius:16px;padding:12px 14px;text-align:left}
+  .btn-rec .ic{width:44px;height:44px;border-radius:12px;background:var(--marinoSuave);color:var(--marino);display:flex;align-items:center;justify-content:center;flex:none}
+  .btn-rec b{display:block;font-size:15px;color:var(--marino)}
+  .btn-rec small{display:block;font-size:12px;color:var(--gris);margin-top:2px}
+  .rc-kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .rc-kpi{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+  .rc-kpi .et{font-size:12px;font-weight:700;color:var(--gris)}
+  .rc-kpi .num{font-size:22px;font-weight:800;color:var(--tinta);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .rc-kpi .pie2{font-size:12px;color:var(--gris)}
+  .rc-grid{display:flex;flex-direction:column;gap:16px}
+  .rc-panel{background:#fff;border:1px solid var(--borde);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  .rc-panel h2{font-size:16px;font-weight:800}
+  .rc-panel .cab{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  .rc-panel .cab span{font-size:12px;color:var(--gris)}
+  .rc-ley{display:flex;gap:14px;font-size:12px;color:var(--gris);flex-wrap:wrap}
+  .rc-ley i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+  .rc-svg{width:100%;height:auto;display:block;overflow:visible}
+  .rc-svg text{font-family:Figtree,system-ui,sans-serif;fill:var(--gris);font-size:15px}
+  .rc-svg .val{fill:var(--tinta);font-weight:700}
+  .rc-svg .hit{fill:transparent}
+  .rc-svg g.b:hover rect.m{opacity:.8}
+  .rc-fila{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:4px 10px;font-size:14px}
+  .rc-fila .n{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .rc-fila .v{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+  .rc-fila .rc-barra{grid-column:1 / -1;grid-row:2}
+  .rc-barra{flex:1;height:10px;border-radius:5px;background:var(--linea);overflow:hidden;display:flex;gap:2px}
+  .rc-barra div{height:10px}
+  .rc-barra div:first-child{border-radius:5px 0 0 5px}
+  .rc-barra div:last-child{border-radius:0 5px 5px 0}
+  .rc-barra div:only-child{border-radius:5px}
+  .rc-tabla{width:100%;border-collapse:collapse;font-size:13px}
+  .rc-tabla th{text-align:left;color:var(--gris);font-size:11px;font-weight:700;padding:6px 4px;text-transform:uppercase;letter-spacing:.03em}
+  .rc-tabla td{padding:8px 4px;border-top:1px solid var(--linea);font-variant-numeric:tabular-nums}
+  .rc-nota{font-size:12px;color:var(--gris)}
+  .rc-off{background:var(--ambarSuave);color:var(--ambar);border-radius:12px;padding:10px 12px;font-size:13px;font-weight:700}
+  @media (min-width: 900px){
+    .rc-kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+    .rc-grid{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);align-items:start;gap:16px}
+    .rc-grid .col{display:flex;flex-direction:column;gap:16px;min-width:0}
+  }
+  .rc-grid .col{display:flex;flex-direction:column;gap:16px;min-width:0}
 </style>
 </head>
 <body>
@@ -277,7 +320,8 @@
       var u = window.API_URL;
       if (!u || /PEGUE/.test(u)) throw new Error('Falta la dirección del servidor en config.js');
       if (navigator.onLine === false) throw new Error('NetworkError: sin conexión');
-      return fetch(u, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }), redirect: 'follow' });
+      // Nunca se queda colgado: a los 40 s se da por perdido (señal muy débil)
+      return Promise.race([fetch(u, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ fn: fn, args: args }), redirect: 'follow' }), esperar(40000)]);
     }).then(function (r) { return r.text(); }).then(function (t) {
       var j;
       try { j = JSON.parse(t); } catch (e) {
@@ -317,7 +361,7 @@ const S = {
   token: null, usuario: null, publico: {}, datos: null, vista: 'login', modoElegir: false,
   filtroGrupo: 'Todos', soloAdeudo: false, busqueda: '',
   ficha: null, cobro: null, recibo: null, pdf: null, envio: null, ticket: null,
-  reporte: null, periodoReporte: null, corte: null,
+  reporte: null, periodoReporte: null, corte: null, rec: null,
   mov: null, con: null,
   sincronizando: false, ultimoErrorRed: false
 };
@@ -363,6 +407,26 @@ function api(fn, ...args) {
   });
 }
 
+// Igual que api(), pero si el servidor no contesta en "ms" se rinde (señal débil).
+// Devuelve null y marca S.ultimoErrorRed = true, como si no hubiera internet.
+function apiTiempo(ms, fn, ...args) {
+  S.ultimoErrorRed = false;
+  cargando(true);
+  return new Promise(res => {
+    let listo = false;
+    const fin = (v, red, m) => { if (listo) return; listo = true; clearTimeout(t); cargando(false); S.ultimoErrorRed = !!red; if (m) aviso(m, true); res(v); };
+    const t = setTimeout(() => fin(null, true), ms);
+    google.script.run
+      .withSuccessHandler(r => fin(r))
+      .withFailureHandler(e => {
+        const m = (e && e.message) || String(e);
+        if (m.indexOf('SESION') >= 0) { fin(null, false); salirLocal(); aviso('Su sesión terminó. Ingrese su PIN de nuevo.', true); return; }
+        fin(null, esErrorRed(m), esErrorRed(m) ? '' : m);
+      })[fn](...args);
+  });
+}
+const nuevaClave = () => 'P-' + (Date.now().toString(36) + Math.random().toString(36).slice(2, 4)).toUpperCase().slice(-8);
+
 /* ---------- Íconos ---------- */
 const svg = (d, t = 24, c = 'currentColor', g = 2) => `<svg width="${t}" height="${t}" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="${g}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 const I = {
@@ -386,6 +450,7 @@ const I = {
   ambos: t => svg('<path d="M6 9V3h12v6M6 18H4v-7h16v7h-2M7 14h10v7H7z"/><circle cx="19" cy="5" r="3"/>', t || 22),
   lista: t => svg('<path d="M9 6h12M9 12h12M9 18h12"/><circle cx="4" cy="6" r="1.3"/><circle cx="4" cy="12" r="1.3"/><circle cx="4" cy="18" r="1.3"/>', t || 20),
   alerta: t => svg('<path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/>', t || 20),
+  grafica: t => svg('<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-7"/>', t || 22),
   llave: t => svg('<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/>', t || 20)
 };
 
@@ -407,7 +472,7 @@ function ir(vista) { if (typeof cerrarModal === 'function') cerrarModal(); S.vis
 
 function pintar() {
   const v = { login: vLogin, inicio: vInicio, alumnos: vAlumnos, ficha: vFicha, cobro: vCobro,
-              recibo: vRecibo, reportes: vReportes, config: vConfig, movimientos: vMovimientos, consulta: vConsulta }[S.vista];
+              recibo: vRecibo, reportes: vReportes, recaudacion: vRecaudacion, config: vConfig, movimientos: vMovimientos, consulta: vConsulta }[S.vista];
   if (S.vista === 'login' || S.vista === 'recibo' || !S.datos) {
     $('#app').innerHTML = (S.vista === 'login' ? '' : barraConexion()) + v();
   } else {
@@ -431,7 +496,8 @@ function menuLateral() {
     <button class="menu${act('consulta')}" onclick="abrirConsulta()">${I.buscar(20)} Consultar / reimprimir</button>
     <button class="menu${act('alumnos')}" onclick="abrirAlumnos(false)">${I.alumnos(20)} Alumnos</button>
     <button class="menu${act('movimientos')}" onclick="abrirMovimientos()">${I.lista()} Movimientos</button>
-    ${admin ? `<button class="menu${act('reportes')}" onclick="abrirReportes()">${I.reportes(20)} Reportes</button>
+    ${admin ? `<button class="menu${act('recaudacion')}" onclick="abrirRecaudacion()">${I.grafica(20)} Recaudación</button>
+    <button class="menu${act('reportes')}" onclick="abrirReportes()">${I.reportes(20)} Reportes</button>
     <button class="menu${act('config')}" onclick="ir('config')">${I.ajustes(20)} Cuotas y fechas</button>` : ''}
     <div class="usuario"><span style="opacity:.8">Sesión de</span><b>${esc(S.usuario.nombre)}</b>
       <button class="menu" onclick="salir()" style="padding:0 8px">${I.salir(20)} Cerrar sesión</button></div>
@@ -466,7 +532,7 @@ function mostrarPDF(p, titulo, extra) {
 const DATOS_LOCAL = 'cobros_datos';
 function guardarDatosLocal(d) { try { if (d && S.token) localStorage.setItem(DATOS_LOCAL, JSON.stringify({ k: S.token, t: Date.now(), d: d })); } catch (e) {} }
 function leerDatosLocal(t) {
-  try { const x = JSON.parse(localStorage.getItem(DATOS_LOCAL) || 'null'); return x && x.k === t && Date.now() - x.t < 3 * 864e5 ? x.d : null; } catch (e) { return null; }
+  try { const x = JSON.parse(localStorage.getItem(DATOS_LOCAL) || 'null'); return x && x.k === t && Date.now() - x.t < 30 * 864e5 ? x.d : null; } catch (e) { return null; }
 }
 window.addEventListener('load', async () => {
   try { S.publico = JSON.parse(leerLocal('cobros_publico') || 'null') || null; } catch (e) { S.publico = null; }
@@ -495,7 +561,7 @@ async function entrar(ev) {
   const d = await api('obtenerInicio', S.token);
   if (d) { S.datos = d; S.usuario = d.usuario; guardarDatosLocal(d); ir('inicio'); sincronizar(); }
 }
-function salirLocal() { S.token = null; S.datos = null; guardarLocal('cobros_token', null); guardarLocal(DATOS_LOCAL, null); ir('login'); }
+function salirLocal() { S.token = null; S.datos = null; S.rec = null; try { Object.keys(localStorage).filter(k => k.indexOf('cobros_rec_') === 0).forEach(k => localStorage.removeItem(k)); } catch (e) {} guardarLocal('cobros_token', null); guardarLocal(DATOS_LOCAL, null); try { localStorage.removeItem(RECIBOS_LOCAL); } catch (e) {} ir('login'); }
 function salir() { google.script.run.cerrarSesion(S.token); salirLocal(); }
 
 async function refrescar(silencioso) {
@@ -568,6 +634,8 @@ function vInicio() {
         <button class="btn borde" onclick="abrirMovimientos()">${I.lista()} Movimientos</button>
         ${admin ? `<button class="btn borde" onclick="ir('config')">${I.ajustes(20)} Cuotas</button>` : ''}
       </div>
+      ${admin ? `<button class="btn-rec" onclick="abrirRecaudacion()"><span class="ic">${I.grafica(24)}</span>
+        <span style="flex:1;text-align:left"><b>Tablero de recaudación</b><small>Todo lo cobrado: por mes, grupo y semestre · PDF para supervisión</small></span>${I.sig()}</button>` : ''}
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
         <h2 style="font-size:17px;font-weight:800">Últimos cobros</h2>
@@ -792,13 +860,17 @@ async function guardarCobro() {
   const total = conceptos.reduce((s, c) => s + c.monto, 0);
   if (!confirm(`¿Registrar cobro de ${dinero(total)} en efectivo a ${k.alumno.nombre}?` + (correo ? `\nSe enviará el comprobante a ${correo}` : ''))) return;
 
-  const datos = { id: k.alumno.id, conceptos, observaciones: k.obs,
+  const clave = nuevaClave();
+  const datos = { id: k.alumno.id, conceptos, observaciones: k.obs, clave,
     correo, guardarCorreo: !!(correo && k.guardarCorreo && !k.alumno.correo) };
-  if (!navigator.onLine) return guardarSinConexion(datos, k, impreso);
-  const r = await api('registrarPago', S.token, datos);
-  if (!r && S.ultimoErrorRed) return guardarSinConexion(datos, k, impreso);
+  if (!navigator.onLine) return guardarSinConexion(datos, k, impreso, clave);
+  // Con señal débil no se espera de más: a los 15 s se guarda en el equipo y se imprime igual.
+  // Si el envío sí llegó, la hoja reconoce la clave y no lo registra dos veces.
+  const r = await apiTiempo(15000, 'registrarPago', S.token, datos);
+  if (!r && S.ultimoErrorRed) return guardarSinConexion(datos, k, impreso, clave);
   if (!r) return;
   S.recibo = r.recibo;
+  guardarReciboLocal(r.recibo);
   S.pdf = r.pdf && !r.pdf.error ? r.pdf : null;
   S.envio = r.correo || (r.pdf && r.pdf.error ? { error: r.pdf.error } : null);
   S.ticket = null;
@@ -818,8 +890,11 @@ async function guardarCobro() {
  * 5. RECIBO
  * ================================================================= */
 async function abrirRecibo(folio) {
-  const r = await api('obtenerRecibo', S.token, folio);
+  let r = navigator.onLine ? await apiTiempo(10000, 'obtenerRecibo', S.token, folio) : null;
+  if (r) guardarReciboLocal(r);
+  else r = reciboLocal(folio);
   if (r) { S.recibo = r; S.pdf = null; S.envio = null; S.ticket = null; ir('recibo'); }
+  else aviso('Sin conexión y este recibo no está guardado en el equipo.', true);
 }
 
 function vRecibo() {
@@ -896,9 +971,10 @@ async function enviarDigital(ev) {
 }
 
 async function imprimirTicket() {
-  if (S.recibo.provisional) return imprimirTicketLocal(S.recibo);
+  if (S.recibo.provisional || !navigator.onLine) return imprimirTicketLocal(S.recibo);
   const folio = S.recibo.folio;
-  const p = (S.ticket && S.ticket.folio === folio) ? S.ticket.pdf : await api('generarTicketPDF', S.token, folio);
+  const p = (S.ticket && S.ticket.folio === folio) ? S.ticket.pdf : await apiTiempo(12000, 'generarTicketPDF', S.token, folio);
+  if (!p) return imprimirTicketLocal(S.recibo);   // sin señal: el ticket se arma en el equipo
   if (!p) return;
   S.ticket = { folio, pdf: p };
   mostrarPDF(p, 'Ticket ' + folio, `<span class="sub" style="flex-basis:100%">Al imprimir elija la impresora térmica, papel de 58 mm, escala 100 % (tamaño real) y sin márgenes.</span>`);
@@ -950,6 +1026,8 @@ function vReportes() {
         <div class="tarjeta" style="padding:14px;display:flex;flex-direction:column;gap:4px"><span class="sub" style="font-weight:600">Construcción</span>
           <b style="font-size:22px;color:var(--cons)">${dinero(t.construccion)}</b><span class="sub" style="font-size:12px">${r.consPagados} de ${r.alumnos} pagados</span></div>
       </div>
+      <button class="btn-rec" onclick="abrirRecaudacion('${esc(r.periodo)}')"><span class="ic">${I.grafica(24)}</span>
+        <span style="flex:1;text-align:left"><b>Ver tablero de recaudación</b><small>Gráficas por mes, grupo, quién cobró y comparativo</small></span>${I.sig()}</button>
       <div class="tarjeta renglon" style="padding:14px"><b>Total del semestre (efectivo)</b><b style="font-size:20px;color:var(--marino)">${dinero(t.mantenimiento + t.construccion)}</b></div>
       <div class="tarjeta" style="padding:14px;display:flex;flex-direction:column;gap:12px">
         <h2 style="font-size:16px;font-weight:800">Avance por grupo</h2>
@@ -1020,6 +1098,150 @@ async function enviarCorreoCorte(ev) {
   guardarLocal('correo_corte', correo);
   cerrarModal();
   aviso('Corte enviado a ' + r.enviado);
+}
+
+/* =================================================================
+ * 6-A. TABLERO DE RECAUDACIÓN (solo admin)
+ * Lo último que se vio se guarda en el equipo para poder consultarlo sin señal.
+ * ================================================================= */
+const MES_CORTO = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const mesTxt = k => { const p = String(k).split('-'); return p.length === 2 ? MES_CORTO[Number(p[1]) - 1] + ' ' + p[0].slice(2) : k; };
+const diaTxt = k => { const p = String(k).split('-'); return p.length === 3 ? Number(p[2]) + ' ' + MES_CORTO[Number(p[1]) - 1] : k; };
+const pct = (a, b) => b ? Math.round(a / b * 100) : 0;
+const dineroCorto = n => n >= 10000 ? '$' + (Math.round(n / 100) / 10) + ' mil' : dinero(n).replace('.00', '');
+
+async function abrirRecaudacion(periodo) {
+  if (S.usuario.rol !== 'admin') return aviso('Solo el administrador puede ver el tablero de recaudación', true);
+  periodo = periodo || (S.rec && S.rec.periodo) || S.datos.config.periodoActual;
+  const r = await api('obtenerRecaudacion', S.token, periodo);
+  if (r) { r.sinRed = false; S.rec = r; guardarLocal('cobros_rec_' + r.periodo, JSON.stringify(r)); }
+  else {
+    let x = null; try { x = JSON.parse(leerLocal('cobros_rec_' + periodo) || 'null'); } catch (e) {}
+    if (!x) return;
+    x.sinRed = true; S.rec = x;
+  }
+  ir('recaudacion');
+}
+
+function graficaMeses(meses) {
+  if (!meses.length) return '<div class="vacio">Sin cobros en este semestre.</div>';
+  const W = 600, H = 214, base = 182, alto = 150, n = meses.length;
+  const max = Math.max(1, ...meses.map(m => m.total));
+  const paso = W / n, ancho = Math.min(56, paso * 0.56);
+  const barras = meses.map((m, i) => {
+    const x = i * paso + (paso - ancho) / 2;
+    const hM = m.mant / max * alto, hC = m.cons / max * alto, gap = hM && hC ? 2 : 0;
+    return `<g class="b"><title>${mesTxt(m.mes)}: ${dinero(m.total)} (Mant. ${dinero(m.mant)} · Constr. ${dinero(m.cons)})</title>
+      <rect class="hit" x="${i * paso}" y="10" width="${paso}" height="${base}"/>
+      ${hM ? `<rect class="m" x="${x}" y="${base - hM}" width="${ancho}" height="${hM}" rx="4" style="fill:var(--marino)"/>` : ''}
+      ${hC ? `<rect class="m" x="${x}" y="${base - hM - gap - hC}" width="${ancho}" height="${hC}" rx="4" style="fill:var(--cons)"/>` : ''}
+      <text class="val" x="${x + ancho / 2}" y="${base - hM - gap - hC - 6}" text-anchor="middle">${dineroCorto(m.total)}</text>
+      <text x="${x + ancho / 2}" y="${base + 22}" text-anchor="middle">${mesTxt(m.mes)}</text></g>`;
+  }).join('');
+  return `<svg class="rc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Recaudación por mes">
+    <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="#D6DEEA"/>${barras}</svg>`;
+}
+
+function graficaDias(dias) {
+  const W = 600, H = 134, base = 104, alto = 90, n = dias.length;
+  const max = Math.max(1, ...dias.map(d => d.total));
+  const paso = W / n, ancho = Math.max(4, paso - 4);
+  const hoy = dias[n - 1] && dias[n - 1].dia;
+  const barras = dias.map((d, i) => {
+    const h = d.total ? Math.max(3, d.total / max * alto) : 0, x = i * paso + (paso - ancho) / 2;
+    return `<g class="b"><title>${diaTxt(d.dia)}: ${d.total ? dinero(d.total) : 'sin cobros'}</title>
+      <rect class="hit" x="${i * paso}" y="0" width="${paso}" height="${base}"/>
+      ${h ? `<rect class="m" x="${x}" y="${base - h}" width="${ancho}" height="${h}" rx="2" style="fill:var(--marino)"/>` : ''}</g>`;
+  }).join('');
+  return `<svg class="rc-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cobros de los últimos 30 días">
+    <line x1="0" x2="${W}" y1="${base}" y2="${base}" stroke="#D6DEEA"/>${barras}
+    <text x="0" y="${base + 22}">${diaTxt(dias[0].dia)}</text>
+    <text x="${W}" y="${base + 22}" text-anchor="end">${hoy ? 'hoy' : ''}</text></svg>`;
+}
+
+function vRecaudacion() {
+  const r = S.rec, t = r.totales, conCuota = r.esperado.total > 0;
+  const fila = (nombre, valor, partes, extra) => `<div class="rc-fila"><span class="n" title="${esc(nombre)}">${esc(nombre)}</span>
+    <span class="v">${valor}</span>${extra || '<span></span>'}
+    <div class="rc-barra">${partes.filter(p => p[0] > 0).map(p => `<div style="width:${p[0]}%;background:${p[1]}"></div>`).join('')}</div></div>`;
+  const ult30 = r.dias.reduce((s, d) => s + d.total, 0), mejor = r.dias.reduce((a, d) => d.total > a.total ? d : a, { total: 0 });
+  const maxCob = Math.max(1, ...r.cobradores.map(c => c.monto));
+  const maxHist = Math.max(1, ...r.historico.map(h => h.total));
+  const debeUno = r.alumnos - r.pagados.ambos - r.pagados.ninguno;
+
+  const concepto = (nombre, monto, esperado, pagados, color) => `<div style="display:flex;flex-direction:column;gap:6px">
+      <div class="renglon" style="font-size:14px"><b>${nombre}</b><span><b>${dinero(monto)}</b>${esperado ? `<span class="sub"> de ${dinero(esperado)}</span>` : ''}</span></div>
+      <div class="rc-barra"><div style="width:${esperado ? Math.min(100, pct(monto, esperado)) : pct(pagados, r.alumnos)}%;background:${color}"></div></div>
+      <span class="rc-nota">${pagados} de ${r.alumnos} alumnos pagados${esperado ? ' · ' + pct(monto, esperado) + '% de lo esperado' : ''}</span></div>`;
+
+  return `${barra('Tablero de recaudación', "ir('inicio')", `<button class="btn-icono" onclick="abrirRecaudacion('${esc(r.periodo)}')" aria-label="Actualizar">${I.recargar()}</button>`)}
+  <div class="contenido">
+    ${r.sinRed ? `<div class="rc-off">Sin conexión · mostrando los datos guardados del ${esc(r.actualizado)}</div>` : ''}
+    <div class="segmento" role="group" aria-label="Semestre">
+      ${r.periodos.slice(0, 4).map(p => `<button class="${r.periodo === p ? 'activo' : ''}" onclick="abrirRecaudacion('${esc(p)}')">${esc(p)}${p === r.siguiente ? ' (adelantos)' : ''}</button>`).join('')}
+    </div>
+    <p class="rc-nota" style="margin-top:-8px">Semestre ${esc(r.periodo)} · actualizado ${esc(r.actualizado)}</p>
+    <div class="rc-kpis">
+      <div class="rc-kpi"><span class="et">Total recaudado</span><span class="num" style="color:var(--marino)">${dinero(t.total)}</span><span class="pie2">${r.recibos} recibos${r.recibos ? ' · prom. ' + dinero(Math.round(t.total / r.recibos)) : ''}</span></div>
+      ${conCuota
+        ? `<div class="rc-kpi"><span class="et">Por cobrar</span><span class="num" style="color:var(--ambar)">${dinero(r.porCobrar)}</span><span class="pie2">${pct(t.total, r.esperado.total)}% de lo esperado cobrado</span></div>`
+        : `<div class="rc-kpi"><span class="et">Últimos 30 días</span><span class="num">${dinero(ult30)}</span><span class="pie2">entró a caja</span></div>`}
+      <div class="rc-kpi"><span class="et">Alumnos al corriente</span><span class="num" style="color:var(--ok)">${r.pagados.ambos}<span class="sub" style="font-size:14px"> / ${r.alumnos}</span></span><span class="pie2">${pct(r.pagados.ambos, r.alumnos)}% con los dos conceptos</span></div>
+      <div class="rc-kpi"><span class="et">Sin ningún pago</span><span class="num">${r.pagados.ninguno}</span><span class="pie2">alumnos en ${esc(r.periodo)}</span></div>
+    </div>
+    <div class="rc-grid"><div class="col">
+      <section class="rc-panel"><div class="cab"><h2>Recaudación por mes</h2></div>
+        <div class="rc-ley"><span><i style="background:var(--marino)"></i>Mantenimiento</span><span><i style="background:var(--cons)"></i>Construcción</span></div>
+        ${graficaMeses(r.meses)}</section>
+      <section class="rc-panel"><div class="cab"><h2>Últimos 30 días</h2><span>${dinero(ult30)} en total${mejor.total ? ' · mejor día ' + diaTxt(mejor.dia) + ' (' + dinero(mejor.total) + ')' : ''}</span></div>
+        ${graficaDias(r.dias)}</section>
+      <section class="rc-panel"><div class="cab"><h2>Por grupo</h2><span>Toque Reportes para ver quién debe</span></div>
+        <div style="overflow-x:auto"><table class="rc-tabla"><tr><th>Grupo</th><th style="width:34%">Al corriente</th><th>Recaudado</th>${conCuota ? '<th>Por cobrar</th>' : ''}</tr>
+        ${r.grupos.map(g => `<tr><td><b>${esc(g.grupo)}</b><div class="rc-nota">${g.alumnos} alumnos</div></td>
+          <td><div style="display:flex;align-items:center;gap:8px"><div class="rc-barra"><div style="width:${pct(g.alCorriente, g.alumnos)}%;background:var(--ok)"></div></div><span style="width:36px;font-size:12px">${pct(g.alCorriente, g.alumnos)}%</span></div></td>
+          <td><b>${dinero(g.recaudado)}</b></td>${conCuota ? `<td style="color:${g.porCobrar ? 'var(--ambar)' : 'inherit'}">${dinero(g.porCobrar)}</td>` : ''}</tr>`).join('') || `<tr><td colspan="4" class="rc-nota">Sin alumnos.</td></tr>`}
+        </table></div></section>
+    </div><div class="col">
+      <section class="rc-panel"><div class="cab"><h2>Avance por concepto</h2></div>
+        ${concepto('Mantenimiento', t.mant, r.esperado.mant, r.pagados.mant, 'var(--marino)')}
+        ${concepto('Construcción', t.cons, r.esperado.cons, r.pagados.cons, 'var(--cons)')}</section>
+      <section class="rc-panel"><div class="cab"><h2>Situación de los alumnos</h2></div>
+        <div class="rc-barra" style="height:14px">${[[r.pagados.ambos, 'var(--ok)'], [debeUno, 'var(--ambarBorde)'], [r.pagados.ninguno, '#B9C3D3']].filter(x => x[0] > 0)
+          .map(x => `<div style="height:14px;width:${pct(x[0], r.alumnos)}%;background:${x[1]}"></div>`).join('')}</div>
+        <div class="rc-ley"><span><i style="background:var(--ok)"></i>✓ Al corriente · ${r.pagados.ambos}</span><span><i style="background:var(--ambarBorde)"></i>Debe un concepto · ${debeUno}</span><span><i style="background:#B9C3D3"></i>Sin pagos · ${r.pagados.ninguno}</span></div></section>
+      <section class="rc-panel"><div class="cab"><h2>Quién cobró</h2><span>en ${esc(r.periodo)}</span></div>
+        ${r.cobradores.map(c => fila(c.nombre, dinero(c.monto), [[pct(c.monto, maxCob), 'var(--marino)']], `<span class="rc-nota" style="text-align:right">${c.recibos} recibos</span>`)).join('') || '<div class="vacio">Sin cobros.</div>'}</section>
+      <section class="rc-panel"><div class="cab"><h2>Comparativo de semestres</h2></div>
+        ${r.historico.map(h => fila(h.periodo, dinero(h.total), [[pct(h.total, maxHist), h.periodo === r.periodo ? 'var(--marino)' : '#B9C3D3']])).join('') || '<div class="vacio">Aún no hay semestres con cobros.</div>'}</section>
+      <section class="rc-panel"><div class="cab"><h2>Informe para supervisión</h2></div>
+        <p class="rc-nota">PDF con totales, meses, grupos, quién cobró y comparativo, con espacio para firmas. Se guarda en Drive (carpeta Informes).</p>
+        <div class="dos"><button class="btn primario" onclick="recaudacionPDF()">${I.ver(18)} PDF</button>
+          <button class="btn borde" onclick="pedirCorreoRecaudacion()">${I.correo(18)} Correo</button></div></section>
+    </div></div>
+  </div>`;
+}
+
+async function recaudacionPDF() {
+  const p = await api('generarRecaudacionPDF', S.token, S.rec.periodo);
+  if (p) mostrarPDF(p, 'Informe de recaudación', `<button class="btn borde" onclick="pedirCorreoRecaudacion()">${I.correo()} Enviar por correo</button>`);
+}
+function pedirCorreoRecaudacion() {
+  abrirModal(`${cabModal('Enviar informe de recaudación')}
+    <form class="modal-cuerpo" onsubmit="enviarCorreoRecaudacion(event)">
+      <p class="sub" style="font-size:15px">Informe del semestre <b>${esc(S.rec.periodo)}</b>, en PDF.</p>
+      <label class="campo"><span>Enviar a</span>
+        <input id="correoRec" type="email" required autocomplete="email" value="${esc(leerLocal('correo_rec') || '')}"></label>
+      <button class="btn primario grande" type="submit">${I.correo()} Enviar</button>
+    </form>`);
+}
+async function enviarCorreoRecaudacion(ev) {
+  ev.preventDefault();
+  const correo = $('#correoRec').value.trim();
+  const r = await api('enviarRecaudacionCorreo', S.token, S.rec.periodo, correo);
+  if (!r) return;
+  guardarLocal('correo_rec', correo);
+  cerrarModal();
+  aviso('Informe enviado a ' + r.enviado);
 }
 
 /* =================================================================
@@ -1187,7 +1409,7 @@ function tarjetaAlumno(a) {
         ${linea('Mantenimiento', sig.mant)}${linea('Construcción', sig.cons)}
       </div>
       <div style="display:flex;flex-direction:column">
-        <span class="etiqueta" style="font-size:12px;padding:8px 0 4px">Tickets del alumno (${folios.length})</span>
+        <span class="etiqueta" style="font-size:12px;padding:8px 0 4px">Tickets del alumno (${folios.length})${f.local ? ' · sin conexión, guardados en este equipo' : ''}</span>
         ${folios.length ? folios.map(g => `<div class="ticket-fila">
           <div class="txt"><b>${esc(g.folio)} · ${dinero(g.total)}</b><span class="sub">${esc(g.fecha)} · ${esc(g.conceptos.join(' + '))}</span></div>
           <button class="btn primario btn-chico" onclick="reimprimir('${esc(g.folio)}')">${I.impresora(18)} Reimprimir</button>
@@ -1234,21 +1456,29 @@ function tarjetaFolio(r) {
 async function buscarFolio() {
   const q = S.con.texto.trim();
   if (!pareceFolio(q)) return;
-  const r = await api('obtenerRecibo', S.token, normalizarFolio(q));
+  const f = normalizarFolio(q);
+  let r = navigator.onLine ? await apiTiempo(10000, 'obtenerRecibo', S.token, f) : null;
+  if (r) guardarReciboLocal(r); else r = reciboLocal(f);
   if (r) { S.con.folio = r; pintarConsulta(); }
+  else aviso('Sin conexión y el folio ' + f + ' no está guardado en el equipo.', true);
 }
 
 async function verTicketsAlumno(id) {
   if (S.con.abierto === id) { S.con.abierto = null; S.con.ficha = null; return pintarConsulta(); }
-  const f = await api('obtenerFicha', S.token, id);
-  if (!f) return;
+  let f = navigator.onLine ? await apiTiempo(10000, 'obtenerFicha', S.token, id) : null;
+  if (!f) f = fichaLocal(id);
   S.con.abierto = id; S.con.ficha = f;
   pintarConsulta();
 }
 
 async function reimprimir(folio) {
   if (!confirm('¿Reimprimir el ticket ' + folio + '? Saldrá marcado como REIMPRESIÓN.')) return;
-  const p = await api('generarTicketPDF', S.token, folio, true);
+  const p = navigator.onLine && !/^P-/.test(folio) ? await apiTiempo(12000, 'generarTicketPDF', S.token, folio, true) : null;
+  if (!p) {   // sin señal: se arma en el equipo con lo que se tiene guardado
+    const r = reciboLocal(folio);
+    if (!r) return aviso('Sin conexión y el ticket ' + folio + ' no está guardado en el equipo.', true);
+    return imprimirTicketLocal(r, true);
+  }
   if (p) mostrarPDF(p, 'Reimpresión ' + folio, `<span class="sub" style="flex-basis:100%">Al imprimir elija la impresora térmica, papel de 58 mm, escala 100 % y sin márgenes.</span>`);
 }
 
@@ -1271,9 +1501,9 @@ function barraConexion() {
   return '';
 }
 
-function guardarSinConexion(datos, k, impreso) {
+function guardarSinConexion(datos, k, impreso, clave) {
   const c = S.datos.config, a = k.alumno;
-  const prov = 'P-' + Date.now().toString(36).toUpperCase().slice(-6);
+  const prov = clave || nuevaClave();
   const ahora = new Date();
   const item = { provisional: prov, fecha: ahora.toISOString(), datos, usuario: S.usuario.nombre, alumno: { id: a.id, nombre: a.nombre, grupo: a.grupo } };
   const cola = leerCola(); cola.push(item); guardarCola(cola);
@@ -1293,6 +1523,7 @@ function guardarSinConexion(datos, k, impreso) {
   S.datos.recientes.unshift({ folio: prov, alumno: a.nombre, grupo: a.grupo, conceptos: datos.conceptos.map(x => x.concepto), total, fecha: '' });
   S.recibo = { folio: prov, provisional: true, fecha: fechaCorta(ahora), alumno: a.nombre, grupo: a.grupo, id: a.id,
     conceptos: datos.conceptos, total, cobro: S.usuario.nombre, escuela: c.escuela, cct: c.cct, correo: datos.correo };
+  guardarReciboLocal(S.recibo);
   S.pdf = null; S.envio = null; S.ticket = null; S.cobro = null;
   ir('recibo');
   aviso('Sin internet: cobro guardado en este equipo con folio provisional ' + prov);
@@ -1325,6 +1556,7 @@ async function sincronizar(manual) {
     }
     cola = leerCola().filter(x => x.provisional !== item.provisional); guardarCola(cola);
     enviados++;
+    if (res.r && res.r.recibo) { guardarReciboLocal(res.r.recibo, item.provisional); }
     if (S.recibo && S.recibo.folio === item.provisional) {        // si está viendo ese recibo, se cambia por el definitivo
       S.recibo = res.r.recibo; S.pdf = res.r.pdf && !res.r.pdf.error ? res.r.pdf : null; S.envio = res.r.correo;
     }
@@ -1343,7 +1575,7 @@ window.addEventListener('offline', () => pintarBarraConexion());
 setInterval(() => { if (leerCola().length) sincronizar(); }, 30000);
 
 // Ticket armado en el navegador (no necesita internet). Se imprime desde aquí.
-function htmlTicketLocal(r) {
+function htmlTicketLocal(r, reimpresion) {
   const pt = x => (x * 1.3333).toFixed(1) + 'px';
   const T = { chico: 6.5, normal: 7.5, medio: 9, grande: 10.5, total: 11 };
   const raya = `<div style="text-align:center;font-size:${pt(T.chico)};white-space:nowrap;overflow:hidden">- - - - - - - - - - - - - - - - - - - - -</div>`;
@@ -1355,8 +1587,9 @@ function htmlTicketLocal(r) {
 <div style="text-align:center"><img src="${LOGO_BN}" style="width:24mm"></div>
 ${c(esc(r.escuela), T.grande, 1)}${c('CCT ' + esc(r.cct), T.chico)}${c('Catemaco, Veracruz', T.chico)}${raya}
 ${c('¡Gracias por su aportación!', T.chico)}${raya}
-${c('*** COMPROBANTE PROVISIONAL ***', T.medio, 1)}${c('Emitido sin conexión. El folio definitivo se asigna al enviarse a la hoja.', T.chico)}${raya}
-${fila('Fecha:', esc(r.fecha), 34)}${fila('<b>Folio prov.:</b>', '<b>' + esc(r.folio) + '</b>', 40)}${fila('Atendió:', esc(r.cobro), 34)}${raya}
+${reimpresion ? c('*** REIMPRESIÓN ***', T.medio, 1) + c(fechaCorta(new Date()), T.chico) + raya : ''}
+${r.provisional ? c('*** COMPROBANTE PROVISIONAL ***', T.medio, 1) + c('Emitido sin conexión. El folio definitivo se asigna al enviarse a la hoja.', T.chico) + raya : ''}
+${fila('Fecha:', esc(r.fecha), 34)}${fila(r.provisional ? '<b>Folio prov.:</b>' : '<b>Folio:</b>', '<b>' + esc(r.folio) + '</b>', 40)}${fila('Atendió:', esc(r.cobro), 34)}${raya}
 <div style="font-size:${pt(T.chico)};font-weight:bold">Alumno(a):</div><div style="font-size:${pt(T.normal)};font-weight:bold">${esc(r.alumno)}</div>
 ${fila('Grupo:', esc(r.grupo), 40)}${raya}
 ${fila('CONCEPTO', 'IMPORTE', 60, { s: T.chico, b: 1 })}${raya}
@@ -1367,14 +1600,57 @@ ${raya}
 <div style="height:18pt"></div>${c('_______________________', T.normal)}${c('Firma de quien recibe', T.chico)}
 </div></body></html>`;
 }
-function imprimirTicketLocal(r) {
-  abrirModal(`${cabModal('Ticket provisional ' + r.folio)}
-    <iframe class="visor" id="visorLocal" title="Ticket provisional"></iframe>
+function imprimirTicketLocal(r, reimpresion) {
+  const tit = (reimpresion ? 'Reimpresión ' : r.provisional ? 'Ticket provisional ' : 'Ticket ') + r.folio;
+  abrirModal(`${cabModal(tit)}
+    <iframe class="visor" id="visorLocal" title="${esc(tit)}"></iframe>
     <div class="modal-pie">
       <button class="btn primario" onclick="const f=document.getElementById('visorLocal');f.contentWindow.focus();f.contentWindow.print()">${I.impresora(20)} Imprimir</button>
       <span class="sub" style="flex-basis:100%">Elija la impresora térmica, papel de 58 mm, escala 100 % y sin márgenes.</span>
     </div>`, 'pdf');
-  const f = document.getElementById('visorLocal'); if (f) f.srcdoc = htmlTicketLocal(r);
+  const f = document.getElementById('visorLocal'); if (f) f.srcdoc = htmlTicketLocal(r, reimpresion);
+}
+
+/* ---------- Recibos guardados en el equipo (para reimprimir sin internet) ----------
+ * Fuentes: los recibos que se hicieron o abrieron en este equipo, los tickets que manda
+ * la hoja al abrir la app (los 1500 más recientes) y los cobros sin conexión por enviar. */
+const RECIBOS_LOCAL = 'cobros_recibos';
+function leerRecibosLocal() { try { return JSON.parse(localStorage.getItem(RECIBOS_LOCAL) || '{}'); } catch (e) { return {}; } }
+function guardarReciboLocal(r, provisionalAnterior) {
+  if (!r || !r.folio) return;
+  const m = leerRecibosLocal();
+  if (provisionalAnterior) delete m[provisionalAnterior];
+  m[r.folio] = { folio: r.folio, fecha: r.fecha, id: r.id, alumno: r.alumno, grupo: r.grupo, cobro: r.cobro,
+    conceptos: r.conceptos, total: r.total, provisional: !!r.provisional, t: Date.now() };
+  const k = Object.keys(m);
+  if (k.length > 400) k.sort((a, b) => m[a].t - m[b].t).slice(0, k.length - 400).forEach(x => delete m[x]);
+  try { localStorage.setItem(RECIBOS_LOCAL, JSON.stringify(m)); } catch (e) {}
+}
+function deTicket(t) {
+  return { folio: t.f, fecha: t.d, id: t.i, alumno: t.a, grupo: t.g, cobro: t.u,
+    conceptos: t.c.map(x => ({ concepto: x[0], periodo: x[1], monto: x[2] })), total: t.c.reduce((s, x) => s + x[2], 0) };
+}
+function reciboLocal(folio) {
+  const c = S.datos.config;
+  let r = leerRecibosLocal()[folio];
+  if (!r) { const t = (S.datos.tickets || []).find(x => x.f === folio); if (t) r = deTicket(t); }
+  if (!r) { const q = leerCola().find(x => x.provisional === folio); if (q) r = { folio, provisional: true, fecha: fechaCorta(new Date(q.fecha)), id: q.alumno.id,
+    alumno: q.alumno.nombre, grupo: q.alumno.grupo, cobro: q.usuario, conceptos: q.datos.conceptos, total: q.datos.conceptos.reduce((s, x) => s + x.monto, 0) }; }
+  return r ? Object.assign({ escuela: c.escuela, cct: c.cct }, r) : null;
+}
+// Tickets de un alumno armados con lo guardado en el equipo (cuando no hay señal)
+function fichaLocal(id) {
+  const c = S.datos.config, vistos = {}, pagos = [];
+  const agregar = r => { if (!r || r.id !== id || vistos[r.folio]) return; vistos[r.folio] = 1;
+    r.conceptos.forEach(x => pagos.push({ folio: r.folio, fecha: r.fecha, concepto: x.concepto, periodo: x.periodo, monto: x.monto })); };
+  leerCola().forEach(q => agregar(reciboLocal(q.provisional)));
+  Object.values(leerRecibosLocal()).forEach(agregar);
+  (S.datos.tickets || []).forEach(t => agregar(deTicket(t)));
+  const est = (concepto, cuota) => {
+    const pagado = pagos.filter(p => p.concepto === concepto && p.periodo === c.periodoSiguiente).reduce((s, p) => s + p.monto, 0);
+    return { cuota, pagado, debe: Math.max(0, cuota - pagado), ok: cuota > 0 ? pagado >= cuota : pagado > 0 };
+  };
+  return { pagos, siguiente: { mant: est('Mantenimiento', c.montoMantenimiento), cons: est('Construcción', c.montoConstruccion) }, local: true };
 }
 
 // Cantidad con letra (igual que en Código.gs, para poder usarla sin internet)
@@ -2235,9 +2511,11 @@ async function respaldoLibroCompleto() {
   menuLateral = function () {
     let h = menuAntes();
     h = h.replace(botonMenu('abrirMovimientos()'), '');
-    const rep = (h.match(botonMenu('abrirReportes()')) || [''])[0];
+    const rec = (h.match(botonMenu('abrirRecaudacion()')) || [''])[0];
+    if (rec) h = h.replace(rec, '');
+    const rep = rec + (h.match(botonMenu('abrirReportes()')) || [''])[0];
     const cuo = (h.match(botonMenu("ir('config')")) || [''])[0];
-    if (rep) h = h.replace(rep, '');
+    if (rep) h = h.replace(rep.slice(rec.length), '');
     if (cuo) h = h.replace(cuo, '');
     const k = h.indexOf('<div class="menu-titulo">CALIFICACIONES');
     return k >= 0 ? h.slice(0, k) + rep + cuo + h.slice(k) : h;
@@ -2345,6 +2623,7 @@ async function respaldoLibroCompleto() {
                 ${accion('abrirAlumnos(false)', I.alumnos(22), 'Alumnos', '')}
                 ${admin ? accion('abrirReportes()', I.reportes(22), 'Reportes', '') : accion('refrescar()', I.recargar(22), 'Actualizar', '')}
               </div>
+              ${admin ? accion('abrirRecaudacion()', I.grafica(22), 'Tablero de recaudación', 'Todo lo cobrado por mes, grupo y semestre · PDF para supervisión') : ''}
               ${admin ? accion("ir('config')", I.ajustes(22), 'Cuotas y fechas', 'Cuotas por semestre y fechas límite') : ''}
             </div>
           </section>
@@ -2909,6 +3188,7 @@ document.body.classList.add('tema-guinda');
       ['Registrar cobro', 'Mantenimiento y construcción', I.mas(18), 'elegirParaCobro()', true],
       ['Consultar adeudo / reimprimir', 'Ver si debe y volver a imprimir', I.buscar(18), 'abrirConsulta()', true],
       ['Alumnos', 'Lista de alumnos y fichas', I.alumnos(18), 'abrirAlumnos(false)', true],
+      ['Tablero de recaudación', 'Todo lo cobrado, gráficas e informe PDF', I.grafica(18), 'abrirRecaudacion()', a],
       ['Reportes', 'Cobros por grupo y corte de caja', I.reportes(18), 'abrirReportes()', a],
       ['Cuotas y fechas', 'Cuotas, fechas límite y color', I.ajustes(18), "ir('config')", a],
       ['Capturar calificaciones', 'Por alumno: materias y conducta', I.lapiz(18), 'abrirCaptura()', true],
